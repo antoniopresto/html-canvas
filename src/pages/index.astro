@@ -1,5 +1,4 @@
 ---
-import Welcome from '../components/Welcome.astro';
 import Layout from '../layouts/Layout.astro';
 
 // Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
@@ -7,5 +6,261 @@ import Layout from '../layouts/Layout.astro';
 ---
 
 <Layout>
-	<Welcome />
+  <div class="wrapper">
+    <div class="container" id="slider-container">
+      <canvas id="slider-canvas" height="400" width="640"></canvas>
+    </div>
+  </div>
 </Layout>
+
+<style>
+  :root {
+    --spacing-2: 2rem;
+  }
+  .wrapper {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .container {
+    width: calc(100% - var(--spacing-2));
+    height: calc(100% - var(--spacing-2));
+    margin: 0 auto;
+  }
+  #slider-canvas {
+    width: 100%;
+    height: 100%;
+  }
+</style>
+
+<script>
+  type CanvasSliderParams = {
+    canvasId: string;
+    canvasContainerId: string;
+    imageSources: string[];
+  };
+
+  class CanvasSlider {
+    canvas: HTMLCanvasElement;
+    container: HTMLDivElement;
+    ctx: CanvasRenderingContext2D;
+    images: HTMLImageElement[] = [];
+    imageSources: string[];
+    isDragging: boolean = false;
+    startX: number = 0;
+    currentTranslate: number = 0;
+    previousTranslate: number = 0;
+    slideWidth: number = 0;
+    animationID: number = 0;
+
+    constructor(private params: CanvasSliderParams) {
+      const { canvasId, canvasContainerId, imageSources } = params;
+      this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
+      this.container = document.getElementById(
+        canvasContainerId,
+      ) as HTMLDivElement;
+      if (!this.container) {
+        throw new Error(
+          `Canvas container with id ${canvasContainerId} not found.`,
+        );
+      }
+      if (!this.canvas) {
+        throw new Error(`Canvas with id ${canvasId} not found.`);
+      }
+      this.ctx = this.canvas.getContext('2d')!;
+      this.imageSources = imageSources;
+      this.handleDimensions();
+      this.init();
+    }
+
+    private async init(): Promise<void> {
+      await this.loadImages();
+      if (this.images.length === 0) {
+        throw new Error('No images loaded, slider cannot start.');
+      }
+      this.setupCanvas();
+      this.addEventListeners();
+      this.draw();
+    }
+
+    private async loadImages(): Promise<void> {
+      const promises = this.imageSources.map((src) => {
+        return new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = 'Anonymous';
+          img.src = src;
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(`Failed to load image: ${src}`);
+        });
+      });
+
+      try {
+        this.images = await Promise.all(promises);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    private handleDimensions() {
+      const { width, height } = this.container.getBoundingClientRect();
+      this.canvas.width = width;
+      this.canvas.height = height;
+      this.setupCanvas();
+      this.draw();
+    }
+
+    private setupCanvas(): void {
+      this.slideWidth = this.canvas.width;
+    }
+
+    private addEventListeners(): void {
+      new ResizeObserver(this.handleDimensions.bind(this)).observe(
+        this.container,
+      );
+
+      this.canvas.addEventListener('mousedown', this.onMouseDown.bind(this));
+      this.canvas.addEventListener('mouseup', this.onMouseUp.bind(this));
+      this.canvas.addEventListener('mouseleave', this.onMouseUp.bind(this));
+      this.canvas.addEventListener('mousemove', this.onMouseMove.bind(this));
+
+      this.canvas.addEventListener('touchstart', this.onTouchStart.bind(this), {
+        passive: false,
+      });
+      this.canvas.addEventListener('touchend', this.onTouchEnd.bind(this), {
+        passive: false,
+      });
+      this.canvas.addEventListener('touchmove', this.onTouchMove.bind(this), {
+        passive: false,
+      });
+    }
+
+    private onMouseDown(event: MouseEvent): void {
+      cancelAnimationFrame(this.animationID);
+      this.isDragging = true;
+      this.startX = event.clientX;
+      this.canvas.style.cursor = 'grabbing';
+      this.previousTranslate = this.currentTranslate;
+    }
+
+    private onMouseUp(): void {
+      this.isDragging = false;
+      this.canvas.style.cursor = 'grab';
+
+      let targetSlide = Math.round(-this.currentTranslate / this.slideWidth);
+      const maxSlideIndex = this.images.length - 1;
+      targetSlide = Math.max(0, Math.min(targetSlide, maxSlideIndex));
+
+      const targetTranslate = -targetSlide * this.slideWidth;
+      this.animate(targetTranslate);
+    }
+
+    private onMouseMove(event: MouseEvent): void {
+      if (!this.isDragging) return;
+
+      const currentX = event.clientX;
+      const dragDistance = currentX - this.startX;
+      const newTranslate = this.previousTranslate + dragDistance;
+
+      const maxTranslate = 0;
+      const minTranslate = -(this.images.length - 1) * this.slideWidth;
+
+      this.currentTranslate = Math.max(
+        minTranslate,
+        Math.min(maxTranslate, newTranslate),
+      );
+
+      this.draw();
+    }
+
+    private onTouchStart(event: TouchEvent): void {
+      event.preventDefault();
+      cancelAnimationFrame(this.animationID);
+      this.isDragging = true;
+      this.startX = event.touches[0].clientX;
+      this.previousTranslate = this.currentTranslate;
+    }
+
+    private onTouchEnd(event: TouchEvent): void {
+      event.preventDefault();
+      this.onMouseUp();
+    }
+
+    private onTouchMove(event: TouchEvent): void {
+      event.preventDefault();
+      if (!this.isDragging) return;
+      const currentX = event.touches[0].clientX;
+      const dragDistance = currentX - this.startX;
+      const newTranslate = this.previousTranslate + dragDistance;
+
+      const maxTranslate = 0;
+      const minTranslate = -(this.images.length - 1) * this.slideWidth;
+
+      this.currentTranslate = Math.max(
+        minTranslate,
+        Math.min(maxTranslate, newTranslate),
+      );
+
+      this.draw();
+    }
+
+    private animate(targetTranslate: number): void {
+      const distance = targetTranslate - this.currentTranslate;
+
+      if (Math.abs(distance) < 0.5) {
+        this.currentTranslate = targetTranslate;
+        this.draw();
+        return;
+      }
+
+      this.currentTranslate += distance * 0.1;
+      this.draw();
+
+      this.animationID = requestAnimationFrame(() =>
+        this.animate(targetTranslate),
+      );
+    }
+
+    private draw(): void {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.ctx.save();
+      this.ctx.translate(this.currentTranslate, 0);
+
+      for (let i = 0; i < this.images.length; i++) {
+        const img = this.images[i];
+
+        const scale = Math.min(
+          this.canvas.width / img.width,
+          this.canvas.height / img.height,
+        );
+        const scaledWidth = img.width * scale;
+        const scaledHeight = img.height * scale;
+
+        const slotX = i * this.slideWidth;
+        const drawX = slotX + (this.slideWidth - scaledWidth) / 2;
+        const drawY = (this.canvas.height - scaledHeight) / 2;
+
+        this.ctx.drawImage(img, drawX, drawY, scaledWidth, scaledHeight);
+      }
+
+      this.ctx.restore();
+    }
+  }
+
+  new CanvasSlider({
+    canvasContainerId: 'slider-container',
+    canvasId: 'slider-canvas',
+    // images from rawpixel.com
+    imageSources: [
+      // Owl right don't move (1882)
+      '/slides/s2.jpg',
+      // Common Crane, White Stork, Gigantic Crane, Common Heron (7)
+      '/slides/s7.jpg',
+      // Head of a Cockatoo (1725–1792) (8)
+      '/slides/s8.jpg',
+      // Black-throated magpie-jay (Pica colliei) (9)
+      '/slides/s9.jpg',
+    ],
+  });
+</script>
