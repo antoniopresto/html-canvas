@@ -87,6 +87,8 @@ export function createSlider(params: CanvasSliderParams) {
       const slotX = index * slideWidth;
       const drawX = slotX + (slideWidth - scaledWidth) / 2;
       const drawY = (canvas.height - scaledHeight) / 2;
+      canvasContext.fillStyle = '#f2f2f2';
+      canvasContext.fillRect(slotX, 0, slideWidth, canvas.height);
       canvasContext.drawImage(image, drawX, drawY, scaledWidth, scaledHeight);
     });
 
